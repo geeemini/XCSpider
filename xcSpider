@@ -1,0 +1,190 @@
+import random
+import requests
+from lxml import etree
+import json
+import regex
+import datetime
+import time
+import pymysql
+my_headers =[
+    'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36',
+    '''Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.153 Safari/537.36''',
+    'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:30.0) Gecko/20100101 Firefox/30.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/537.75.14',
+    'Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.2; Win64; x64; Trident/6.0)'
+]
+citys = [
+    'Hangzhou17', 'Ningbo375', 'Huzhou86', 'Jiaxing571', 'Jinhua308', 'Lishui346' ,'Ningbo375', 'Quzhou407', 'Shaoxing22'
+    , 'Wenzhou491', 'Zhoushan19'
+]
+
+def getHeader():
+    head = {'authority': 'hotels.ctrip.com',
+            'method': 'GET',
+            'path': '/hotel/Hangzhou17',
+            'scheme': 'https',
+            'user-agent': random.choice(my_headers),
+            'x-requested-with': 'XMLHttpRequest',
+            'Cookie': 'minimap=status=1; _abtest_userid=48b83777-0fc0-4e46-969e-d8c05023d618; gad_city=78a2062d1790b42fa1a75f591a7869b2; _ga=GA1.2.700003072.1553566441; _gid=GA1.2.423062737.1553566441; _RF1=122.224.65.170; _RSG=O5ataMvl0v8OY2ERPtBYL8; _RDG=28e1000a40501b2b7d151ecfc142dfe6bf; _RGUID=8e40bf95-a4de-4158-8562-2f765b382898; MKT_Pagesource=PC; Session=smartlinkcode=U130026&smartlinklanguage=zh&SmartLinkKeyWord=&SmartLinkQuary=&SmartLinkHost=; Union=AllianceID=4897&SID=130026&OUID=&Expires=1554171242366; ASP.NET_SessionId=uha0bxcpyr1plophaf0nsa2f; OID_ForOnlineHotel=155356643850948vvkp1553566472066102002; appFloatCnt=1; manualclose=1; HotelCityID=17split%E6%9D%AD%E5%B7%9EsplitHangzhousplit2019-03-26split2019-03-27split0; _HGUID=X%05TP%02%06YUM%01T%04%05MTQUXMXUVRMR%06WVU%02SXRXYX; fcerror=139304980; _zQdjfing=1336fa5fa4cc65b02e5fa4cc4ea084186ad965b02e3a923a4ea084; HotelDomesticVisitedHotels1=435383=0,0,4.7,22341,/hotel/20000/19308/acf707bec06941b78c7ef74b78cdc471.jpg,&1579772=0,0,4.7,3452,/200k0u000000j2f7mF648.jpg,; _gat=1; _bfa=1.1553566438509.48vvkp.1.1553578331188.1553580153700.4.37; _bfs=1.2; Mkt_UnionRecord=%5B%7B%22aid%22%3A%224897%22%2C%22timestamp%22%3A1553580172676%7D%5D; _jzqco=%7C%7C%7C%7C%7C1.1347761676.1553566445581.1553580156610.1553580172698.1553580156610.1553580172698.0.0.0.24.24; __zpspc=9.4.1553580156.1553580172.2%232%7Cwww.baidu.com%7C%7C%7C%7C%23; _bfi=p1%3D102002%26p2%3D102002%26v1%3D37%26v2%3D36',
+            }
+    return head
+
+# 通过city来拿到该city总的分页数
+def getTotal(city):
+    xcUrl = 'https://hotels.ctrip.com/hotel/' + str(city) + '#ctm_ref=hod_hp_sb_lst'
+    result = requests.get(xcUrl, headers=getHeader())
+    time.sleep(1)
+    result.encoding = 'utf-8'
+    html1 = etree.HTML(result.text)
+    this_page_size = html1.xpath('//*[@id="page_info"]/div[1]/a[8]/text()')[0]
+    print('CityId: ' + str(city) + '#### total_page_size: '+ this_page_size)
+    return int(this_page_size)
+
+#传入列表页的url(包括city id 和 分页的参数) 和 city (例：hangzhou17，作为主键)
+def getHotelPageList(hotel_url,city):
+    result = requests.get(hotel_url, headers=getHeader())
+    time.sleep(1)
+    result.encoding = 'utf-8'
+    print(hotel_url)
+    regex1 = regex.compile(r'\\(?![/u"])')
+    fixed = regex1.sub(r"\\\\", result.text)
+    listdata = json.loads(fixed)
+    hotelPosition = listdata['hotelPositionJSON']
+    for hotel in hotelPosition:
+        hotel_url = 'https://hotels.ctrip.com' + str(hotel['url']);
+        hotel['city_key'] = city
+        getHotelDetail(hotel_url,hotel)
+
+
+def getHotelDetail(hotel_detail_url, hotel_info):
+    hotel_data = {}
+    hotel_data['city_key'] = hotel_info['city_key']  # 主键
+    hotel_data['name'] = hotel_info['name']  # 酒店名称
+    hotel_data['address'] = hotel_info['address']  # 酒店地址
+    hotel_data['score'] = hotel_info['score']  # 酒店评分
+    hotel_data['stardesc'] = hotel_info['stardesc']  # 酒店评分描述
+    hotel_data['id'] = int(time.time())
+
+    # 这些是在列表页面就能拿到的信息，but 有一个装修信息要在详细的列表页才能拿到，  ↑ 拿到一些基本信息  ↓拿到装修信息
+
+    hotel_url = 'https://hotels.ctrip.com' + str(hotel_info['url']);
+    hotel_result = requests.get(hotel_url, headers=getHeader())
+    time.sleep(1)
+    print(hotel_url)
+    hotel_result.encoding = 'utf-8'
+    html1 = etree.HTML(hotel_result.text)
+    decoration_info = html1.xpath('//*[@id="htlDes"]/p[1]/text()')[0]  # 装修信息
+    hotel_data['decoration_info'] = decoration_info  # 装修信息
+    # 先把酒店的基本信息放到一个列表里
+    hotel_list.append(hotel_data)
+    print(str(hotel_data['city_key']) + '-- ' + str(hotel_data['name']) + '-- ' + str(hotel_data['address']) + '-- '
+          + str(hotel_data['score']) + '-- ' + str(hotel_data['stardesc']) + '--' + str(decoration_info))
+    # 上面是酒店的基本信息，下面开始拿酒店的房间价钱的一些信息
+    get_room_info(hotel_data, hotel_url)
+
+
+# 分析酒店详情页  拿到各个房型的具体信息
+def get_room_info(hotel_data, hotel_url):
+    hotelHead = {'authority': 'hotels.ctrip.com',
+                 'method': 'GET',
+                 'scheme': 'https',
+                 'referer': hotel_url.split('#')[0],
+                 'user-agent': random.choice(my_headers),
+                 'Cookie': '_abtest_userid=48b83777-0fc0-4e46-969e-d8c05023d618; gad_city=78a2062d1790b42fa1a75f591a7869b2; _ga=GA1.2.700003072.1553566441; _gid=GA1.2.423062737.1553566441; _RF1=122.224.65.170; _RSG=O5ataMvl0v8OY2ERPtBYL8; _RDG=28e1000a40501b2b7d151ecfc142dfe6bf; _RGUID=8e40bf95-a4de-4158-8562-2f765b382898; MKT_Pagesource=PC; Session=smartlinkcode=U130026&smartlinklanguage=zh&SmartLinkKeyWord=&SmartLinkQuary=&SmartLinkHost=; Union=AllianceID=4897&SID=130026&OUID=&Expires=1554171242366; ASP.NET_SessionId=uha0bxcpyr1plophaf0nsa2f; OID_ForOnlineHotel=155356643850948vvkp1553566472066102002; appFloatCnt=1; manualclose=1; HotelCityID=17split%E6%9D%AD%E5%B7%9EsplitHangzhousplit2019-03-26split2019-03-27split0; _HGUID=X%05TP%02%06YUM%01T%04%05MTQUXMXUVRMR%06WVU%02SXRXYX; fcerror=139304980; _zQdjfing=1336fa5fa4cc65b02e5fa4cc4ea084186ad965b02e3a923a4ea084; HotelDomesticVisitedHotels1=435383=0,0,4.7,22337,/hotel/20000/19308/acf707bec06941b78c7ef74b78cdc471.jpg,&346311=0,0,4.7,14867,/hotel/134000/133924/E196E578-A34E-4B88-94B8-74A2498E0394.jpg,&1579772=0,0,4.7,3452,/200k0u000000j2f7mF648.jpg,; _bfi=p1%3D102003%26p2%3D102003%26v1%3D53%26v2%3D52; Mkt_UnionRecord=%5B%7B%22aid%22%3A%224897%22%2C%22timestamp%22%3A1553648040080%7D%5D; _jzqco=%7C%7C%7C%7C%7C1.1347761676.1553566445581.1553590834994.1553648040095.1553590834994.1553648040095.0.0.0.35.35; __zpspc=9.7.1553648040.1553648040.1%232%7Cwww.baidu.com%7C%7C%7C%7C%23; _gat=1; _bfa=1.1553566438509.48vvkp.1.1553588236632.1553648036380.7.54; _bfs=1.2'
+                 }
+
+    hotelId = regex.sub('\D', '', hotel_url.split('.html')[0])
+    cityId = regex.sub('\D', '', hotel_data['city_key'])
+    startDate = datetime.date.today()
+    oneday = datetime.timedelta(days=1)
+    depDate = startDate + oneday
+    hotel_url1 = 'https://hotels.ctrip.com/Domestic/tool/AjaxHote1RoomListForDetai1.aspx?MasterHotelID='
+    hotel_url2 = '&hotel='
+    hotel_url3 = '&city='
+    hotel_url4 = '&startDate='
+    hotel_url5 = '&depDate='
+    hotel_final_url = hotel_url1 + str(hotelId) + hotel_url2 + str(hotelId) + hotel_url3 \
+                      + str(cityId) + hotel_url4 + str(startDate) + hotel_url5 + str(depDate);
+    hotel_xba = requests.get(hotel_final_url, headers=hotelHead)
+    time.sleep(1)
+    data = json.loads(hotel_xba.text)
+    if(len(data['html']) != 0):
+        hotel_detail_html = etree.HTML(data['html'])
+        hotel_trs = hotel_detail_html.xpath('//*[@id="J_RoomListTbl"]/tr')
+
+    for hotel_tr in hotel_trs:
+        # 判断名字的标签是否存在 来判断是不是数据列
+        if (len(hotel_tr.xpath('td[1]/a[2]')) != 0):
+            room_info = {}
+            room_name = hotel_tr.xpath('td[1]/a[2]')[0].text
+            if(len(hotel_tr.xpath('td[2]/span[1]/text()')) != 0):
+                room_type = hotel_tr.xpath('td[2]/span[1]/text()')[0]
+            elif(len(hotel_tr.xpath('td[2]/span[1]/em')) != 0):
+                room_type = hotel_tr.xpath('td[2]/span[1]/em/text()')[0]
+
+            if (len(hotel_tr.xpath('td[3]/text()')) != 0):
+                bed_type = hotel_tr.xpath('td[3]/text()')[0]
+            else:
+                bed_type = '无'
+            breakfast_type = hotel_tr.xpath('td[4]/text()')[0]
+            per_price = hotel_tr.xpath('td[2]/@data-price')[0]
+            # room_discount_text = hotel_tr.xpath('//div[@class="text-grayMiddle"]/span/text()')[0]
+            if(len(hotel_tr.xpath('td[8]/div/div[2]/span/text()')) == 0):
+                room_discount_text = '无'
+                room_discount_price = 0
+            else:
+                room_discount_text = hotel_tr.xpath('td[8]/div/div[2]/span/text()')[0]
+                room_discount_price = regex.sub('\D', '', room_discount_text)
+            rel_price = int(per_price) - int(room_discount_price)
+
+            room_info['hotel_id'] = hotel_data['id']
+            room_info['name'] = room_name
+            room_info['type'] = room_type
+            room_info['bed_type'] = bed_type
+            room_info['breakfast_type'] = breakfast_type
+            room_info['rel_price'] = rel_price
+            room_info['per_price'] = int(per_price)
+            room_info['room_discount_price'] = room_discount_price
+            hotel_room_detail_list.append(room_info)
+            print('房间名字：' + room_name + '\n 房型: ' + room_type + '\n 床型: ' + bed_type +
+                  '\n 早餐: ' + breakfast_type + '\n 现价: ' + str(
+                rel_price) + '\n 原价: ' + str(int(per_price)) + '\n 优惠额度: ' + str(room_discount_price))
+            print('************************************************')
+
+
+db = pymysql.connect("127.0.0.1", "root", "123456", "xc_hotel")
+cursor = db.cursor()
+for city in citys:
+    hotel_list = []; # 酒店信息列表
+    hotel_room_detail_list = []; # 房型对应列表
+# 先循环遍历city  拿到各个地市的总分页页码
+    page_size = getTotal(city)
+    # for num in range(1,page_size):
+    for num in range(1,3):
+        cityid = regex.sub('\D', '', citys[0])
+        hotel_list_page_url = 'https://hotels.ctrip.com/Domestic/Tool/AjaxHotelList.aspx?cityId='+str(cityid) +'&&page='+str(num)
+        getHotelPageList(hotel_list_page_url,city)
+    for h_info in hotel_list:
+        try:
+            sql1 = 'insert into hotel_info (id, city, name, address, score, stardesc, desoration) values'+\
+                ' ({id:d},"{city:s}","{name:s}","{address:s}","{score:s}","{stardesc:s}","{desoration:s}")'\
+                    .format(id=h_info['id'], city=h_info['city_key'], name=h_info['name'], address=h_info['address'],
+                            score=h_info['score'], stardesc=h_info['stardesc'], desoration=h_info['stardesc'])
+            cursor.execute(sql1)
+            db.commit()
+        except:
+            print("Error: unable insert this hotel sql:"+sql1)
+    for r_info in hotel_room_detail_list:
+        try:
+            sql2 = 'insert into room_type (hotel_id, room_name, room_type, bed_type, breakfast_type, rel_price, per_price, discount_price) values'+\
+                ' ({hotel_id:d},"{room_name:s}","{room_type:s}","{bed_type:s}","{breakfast_type:s}","{rel_price:d}","{per_price:d}","{discount_price:d}")'\
+                    .format(hotel_id=r_info['hotel_id'], room_name=r_info['name'], room_type=r_info['type'], bed_type=r_info['bed_type'],
+                            breakfast_type=r_info['breakfast_type'], rel_price=int(r_info['rel_price']), per_price=int(r_info['per_price']), discount_price=int(r_info['room_discount_price']))
+            cursor.execute(sql2)
+            db.commit()
+        except:
+            print("Error: unable insert this room sql:" + sql2)
+# 最后要关闭数据库
+# db.commit()
+cursor.close()
+db.close()
